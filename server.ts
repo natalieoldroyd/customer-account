@@ -1,12 +1,6 @@
 // Virtual entry point for the app
 import * as remixBuild from '@remix-run/dev/server-build';
-import {
-  cartGetIdDefault,
-  cartSetIdDefault,
-  createCartHandler,
-  createStorefrontClient,
-  storefrontRedirect,
-} from '@shopify/hydrogen';
+import {createStorefrontClient, storefrontRedirect} from '@shopify/hydrogen';
 import {
   createRequestHandler,
   getStorefrontHeaders,
@@ -14,10 +8,7 @@ import {
   type SessionStorage,
   type Session,
 } from '@shopify/remix-oxygen';
-import type {
-  LanguageCode,
-  CountryCode,
-} from '@shopify/hydrogen/storefront-api-types';
+import {createCustomerClient} from '~/utils/customer.server';
 
 /**
  * Export a fetch handler in module format.
@@ -48,7 +39,7 @@ export default {
       const {storefront} = createStorefrontClient({
         cache,
         waitUntil,
-        i18n: getLocaleFromRequest(request),
+        i18n: {language: 'EN', country: 'US'},
         publicStorefrontToken: env.PUBLIC_STOREFRONT_API_TOKEN,
         privateStorefrontToken: env.PRIVATE_STOREFRONT_API_TOKEN,
         storeDomain: env.PUBLIC_STORE_DOMAIN,
@@ -56,15 +47,14 @@ export default {
         storefrontHeaders: getStorefrontHeaders(request),
       });
 
-      /*
-       * Create a cart handler that will be used to
-       * create and update the cart in the session.
+      /**
+       * Create a customer client for the new customer API.
        */
-      const cart = createCartHandler({
-        storefront,
-        getCartId: cartGetIdDefault(request.headers),
-        setCartId: cartSetIdDefault(),
-        cartQueryFragment: CART_QUERY_FRAGMENT,
+      const customer = createCustomerClient({
+        request,
+        session,
+        customerAccountId: env.PUBLIC_CUSTOMER_ACCOUNT_ID,
+        customerAccountUrl: env.PUBLIC_CUSTOMER_ACCOUNT_URL,
       });
 
       /**
@@ -74,7 +64,7 @@ export default {
       const handleRequest = createRequestHandler({
         build: remixBuild,
         mode: process.env.NODE_ENV,
-        getLoadContext: () => ({session, storefront, env, cart}),
+        getLoadContext: () => ({session, storefront, env, customer}),
       });
 
       const response = await handleRequest(request);
@@ -87,6 +77,8 @@ export default {
          */
         return storefrontRedirect({request, response, storefront});
       }
+
+      response.headers.set('Set-Cookie', await session.commit());
 
       return response;
     } catch (error) {
@@ -124,10 +116,6 @@ export class HydrogenSession {
     return new this(storage, session);
   }
 
-  has(key: string) {
-    return this.session.has(key);
-  }
-
   get(key: string) {
     return this.session.get(key);
   }
@@ -151,128 +139,4 @@ export class HydrogenSession {
   commit() {
     return this.sessionStorage.commitSession(this.session);
   }
-}
-
-// NOTE: https://shopify.dev/docs/api/storefront/latest/queries/cart
-const CART_QUERY_FRAGMENT = `#graphql
-  fragment Money on MoneyV2 {
-    currencyCode
-    amount
-  }
-  fragment CartLine on CartLine {
-    id
-    quantity
-    attributes {
-      key
-      value
-    }
-    cost {
-      totalAmount {
-        ...Money
-      }
-      amountPerQuantity {
-        ...Money
-      }
-      compareAtAmountPerQuantity {
-        ...Money
-      }
-    }
-    merchandise {
-      ... on ProductVariant {
-        id
-        availableForSale
-        compareAtPrice {
-          ...Money
-        }
-        price {
-          ...Money
-        }
-        requiresShipping
-        title
-        image {
-          id
-          url
-          altText
-          width
-          height
-
-        }
-        product {
-          handle
-          title
-          id
-        }
-        selectedOptions {
-          name
-          value
-        }
-      }
-    }
-  }
-  fragment CartApiQuery on Cart {
-    id
-    checkoutUrl
-    totalQuantity
-    buyerIdentity {
-      countryCode
-      customer {
-        id
-        email
-        firstName
-        lastName
-        displayName
-      }
-      email
-      phone
-    }
-    lines(first: $numCartLines) {
-      nodes {
-        ...CartLine
-      }
-    }
-    cost {
-      subtotalAmount {
-        ...Money
-      }
-      totalAmount {
-        ...Money
-      }
-      totalDutyAmount {
-        ...Money
-      }
-      totalTaxAmount {
-        ...Money
-      }
-    }
-    note
-    attributes {
-      key
-      value
-    }
-    discountCodes {
-      code
-      applicable
-    }
-  }
-` as const;
-
-export type I18nLocale = {language: LanguageCode; country: CountryCode};
-
-function getLocaleFromRequest(request: Request): I18nLocale {
-  const defaultLocale: I18nLocale = {language: 'EN', country: 'US'};
-  const supportedLocales = {
-    ES: 'ES',
-    FR: 'FR',
-    DE: 'DE',
-    JP: 'JA',
-  } as Record<CountryCode, LanguageCode>;
-
-  const url = new URL(request.url);
-  const firstSubdomain = url.hostname
-    .split('.')[0]
-    ?.toUpperCase() as keyof typeof supportedLocales;
-
-  return supportedLocales[firstSubdomain]
-    ? {language: supportedLocales[firstSubdomain], country: firstSubdomain}
-    : defaultLocale;
 }

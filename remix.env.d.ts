@@ -7,6 +7,7 @@ import '@total-typescript/ts-reset';
 
 import type {Storefront, HydrogenCart} from '@shopify/hydrogen';
 import type {I18nLocale, HydrogenSession} from './server';
+import type {CustomerClient} from '~/utils/customer.server';
 
 declare global {
   /**
@@ -23,6 +24,8 @@ declare global {
     PRIVATE_STOREFRONT_API_TOKEN: string;
     PUBLIC_STORE_DOMAIN: string;
     PUBLIC_STOREFRONT_ID: string;
+    PUBLIC_CUSTOMER_ACCOUNT_ID: string;
+    PUBLIC_CUSTOMER_ACCOUNT_URL: string;
   }
 }
 
@@ -35,5 +38,6 @@ declare module '@shopify/remix-oxygen' {
     cart: HydrogenCart;
     storefront: Storefront<I18nLocale>;
     session: HydrogenSession;
+    customer: CustomerClient;
   }
 }
